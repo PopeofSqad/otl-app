@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#0f172a" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>On The Line</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+</head>
+<body>
+
+  <!-- LOGIN SCREEN -->
+  <div id="login-screen" class="login-screen">
+    <div class="login-card">
+      <div class="login-logo">
+        <span class="logo-mark" style="font-size:18px;padding:6px 12px">OTL</span>
+      </div>
+      <h2 style="margin:16px 0 4px;font-size:22px;font-weight:800">On The Line</h2>
+      <p style="color:var(--text-muted);font-size:13px;margin-bottom:24px">Sign in to your dashboard</p>
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" id="loginEmail" placeholder="your@email.com" />
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" id="loginPassword" placeholder="Password" onkeydown="if(event.key==='Enter')handleLogin()" />
+      </div>
+      <div id="loginError" style="color:var(--danger);font-size:13px;margin-bottom:12px;display:none"></div>
+      <button class="btn-primary" style="width:100%;padding:14px;font-size:16px" onclick="handleLogin()">Sign In</button>
+      <p style="color:var(--text-muted);font-size:11px;margin-top:16px;text-align:center">First time? Use "Sign Up" below.</p>
+      <button class="btn-secondary" style="width:100%;margin-top:8px" onclick="handleSignup()">Sign Up</button>
+    </div>
+  </div>
+
+  <!-- HEADER -->
+  <header>
+    <div class="header-inner">
+      <div class="logo">
+        <span class="logo-mark">OTL</span>
+        <span class="logo-text">On The Line</span>
+      </div>
+      <div class="header-actions">
+        <button class="sync-btn" id="syncBtn" onclick="syncAll()" title="Sync data">⟳</button>
+        <button class="sync-btn" onclick="handleLogout()" title="Sign out" style="margin-left:6px;font-size:14px">⏻</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- NAV -->
+  <nav class="bottom-nav">
+    <button class="nav-btn active" data-screen="dashboard" onclick="navigate('dashboard')">
+      <span class="nav-icon">⊞</span>
+      <span class="nav-label">Home</span>
+    </button>
+    <button class="nav-btn" data-screen="clients" onclick="navigate('clients')">
+      <span class="nav-icon">👤</span>
+      <span class="nav-label">Clients</span>
+    </button>
+    <button class="nav-btn" data-screen="quotes" onclick="navigate('quotes')">
+      <span class="nav-icon">$</span>
+      <span class="nav-label">Quotes</span>
+    </button>
+    <button class="nav-btn" data-screen="inspections" onclick="navigate('inspections')">
+      <span class="nav-icon">✓</span>
+      <span class="nav-label">Inspect</span>
+    </button>
+    <button class="nav-btn" data-screen="plans" onclick="navigate('plans')">
+      <span class="nav-icon">▶</span>
+      <span class="nav-label">Plans</span>
+    </button>
+  </nav>
+
+  <!-- MAIN CONTENT -->
+  <main>
+
+    <!-- ===================== DASHBOARD ===================== -->
+    <section id="screen-dashboard" class="screen active">
+      <div class="screen-header">
+        <h2>Dashboard</h2>
+        <span class="date-label" id="todayDate"></span>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-number" id="statActiveClients">0</div>
+          <div class="stat-label">Active Clients</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number" id="statRetainers">0</div>
+          <div class="stat-label">Retainers</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number" id="statQuotesSent">0</div>
+          <div class="stat-label">Quotes Sent</div>
+        </div>
+        <div class="stat-card accent">
+          <div class="stat-number" id="statRevenue">$0</div>
+          <div class="stat-label">Total Billed</div>
+        </div>
+      </div>
+
+      <div class="quick-actions">
+        <h3>Quick Actions</h3>
+        <div class="action-grid">
+          <button class="action-btn" onclick="navigate('clients'); openAddClient()">
+            <span class="action-icon">+</span>
+            New Client
+          </button>
+          <button class="action-btn" onclick="navigate('quotes'); openNewQuote()">
+            <span class="action-icon">$</span>
+            New Quote
+          </button>
+          <button class="action-btn" onclick="navigate('inspections'); openNewInspection()">
+            <span class="action-icon">✓</span>
+            New Inspection
+          </button>
+        </div>
+      </div>
+
+      <div class="recent-section">
+        <h3>Recent Activity</h3>
+        <div id="recentActivity" class="activity-list">
+          <div class="empty-state">No activity yet — let's get to work.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== CLIENTS ===================== -->
+    <section id="screen-clients" class="screen">
+      <div class="screen-header">
+        <h2>Clients</h2>
+        <button class="add-btn" onclick="openAddClient()">+ Add</button>
+      </div>
+
+      <div class="search-bar">
+        <input type="text" id="clientSearch" placeholder="Search clients..." oninput="filterClients()" />
+      </div>
+
+      <div class="filter-tabs">
+        <button class="filter-tab active" onclick="setClientFilter('all', this)">All</button>
+        <button class="filter-tab" onclick="setClientFilter('active', this)">Active</button>
+        <button class="filter-tab" onclick="setClientFilter('prospect', this)">Prospects</button>
+        <button class="filter-tab" onclick="setClientFilter('retainer', this)">Retainer</button>
+        <button class="filter-tab" onclick="setClientFilter('completed', this)">Done</button>
+      </div>
+
+      <div id="clientList" class="list-container">
+        <div class="empty-state">No clients yet. Add your first one!</div>
+      </div>
+    </section>
+
+    <!-- ===================== QUOTES ===================== -->
+    <section id="screen-quotes" class="screen">
+      <div class="screen-header">
+        <h2>Quote Builder</h2>
+        <button class="add-btn" onclick="openNewQuote()">+ New</button>
+      </div>
+
+      <div id="quoteList" class="list-container">
+        <div class="empty-state">No quotes yet.</div>
+      </div>
+    </section>
+
+    <!-- ===================== INSPECTIONS ===================== -->
+    <section id="screen-inspections" class="screen">
+      <div class="screen-header">
+        <h2>Inspections</h2>
+        <button class="add-btn" onclick="openNewInspection()">+ New</button>
+      </div>
+
+      <div id="inspectionList" class="list-container">
+        <div class="empty-state">No inspections yet.</div>
+      </div>
+    </section>
+
+    <!-- ===================== ACTION PLANS ===================== -->
+    <section id="screen-plans" class="screen">
+      <div class="screen-header">
+        <h2>Action Plans</h2>
+      </div>
+
+      <div id="planList" class="list-container">
+        <div class="empty-state">No action plans yet. Complete an inspection to generate one.</div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ===================== ACTION PLAN MODAL ===================== -->
+  <div id="modal-plan" class="modal">
+    <div class="modal-card modal-tall">
+      <div class="modal-header">
+        <h3 id="planModalTitle">Action Plan</h3>
+        <button class="modal-close" onclick="closeModal('modal-plan')">✕</button>
+      </div>
+      <div class="modal-body" id="planModalBody"></div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeModal('modal-plan')">Close</button>
+        <button class="btn-secondary" onclick="copyActionPlan()">Copy</button>
+        <button class="btn-primary" onclick="saveActionPlan()">Save Progress</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== MODALS ===================== -->
+
+  <!-- Add/Edit Client Modal -->
+  <div id="modal-client" class="modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="clientModalTitle">New Client</h3>
+        <button class="modal-close" onclick="closeModal('modal-client')">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="clientId" />
+        <div class="form-group">
+          <label>Contact Name *</label>
+          <input type="text" id="clientName" placeholder="First Last" />
+        </div>
+        <div class="form-group">
+          <label>Business Name</label>
+          <input type="text" id="clientBiz" placeholder="Business or concept name" />
+        </div>
+        <div class="form-group">
+          <label>Phone</label>
+          <input type="tel" id="clientPhone" placeholder="(555) 000-0000" />
+        </div>
+        <div class="form-group">
+          <label>Email</label>
+          <input type="email" id="clientEmail" placeholder="email@example.com" />
+        </div>
+        <div class="form-group">
+          <label>Client Type</label>
+          <select id="clientType">
+            <option value="food_truck">Food Truck</option>
+            <option value="trailer">Trailer</option>
+            <option value="brick_mortar">Restaurant / Bar</option>
+            <option value="stadium">Stadium / Venue</option>
+            <option value="salon">Salon / Barbershop</option>
+            <option value="digital_media">Digital Media / Content</option>
+            <option value="retail">Retail / E-commerce</option>
+            <option value="freelancer">Freelancer / Solo</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Status</label>
+          <select id="clientStatus">
+            <option value="prospect">Prospect</option>
+            <option value="active">Active</option>
+            <option value="retainer">Retainer</option>
+            <option value="completed">Completed</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Notes</label>
+          <textarea id="clientNotes" rows="3" placeholder="Context, referral source, details..."></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeModal('modal-client')">Cancel</button>
+        <button class="btn-primary" onclick="saveClient()">Save Client</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- View Client Modal -->
+  <div id="modal-client-view" class="modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="viewClientName">Client</h3>
+        <button class="modal-close" onclick="closeModal('modal-client-view')">✕</button>
+      </div>
+      <div class="modal-body" id="viewClientBody"></div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="editClientFromView()">Edit</button>
+        <button class="btn-primary" onclick="newQuoteForClient()">New Quote</button>
+        <button class="btn-accent" onclick="newInspectionForClient()">Inspect</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Quote Builder Modal -->
+  <div id="modal-quote" class="modal">
+    <div class="modal-card modal-tall">
+      <div class="modal-header">
+        <h3 id="quoteModalTitle">New Quote</h3>
+        <button class="modal-close" onclick="closeModal('modal-quote')">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="quoteId" />
+        <div class="form-group">
+          <label>Client</label>
+          <select id="quoteClient">
+            <option value="">Select a client...</option>
+          </select>
+        </div>
+
+        <h4 class="section-label">Services</h4>
+
+        <div class="service-item">
+          <div class="service-row">
+            <label class="checkbox-label">
+              <input type="checkbox" id="svcInspection" onchange="recalcQuote()" />
+              <span>Truck / Trailer Inspection</span>
+            </label>
+            <span class="service-price">$300</span>
+          </div>
+        </div>
+
+        <div class="service-item">
+          <div class="service-row">
+            <label class="checkbox-label">
+              <input type="checkbox" id="svcSession" onchange="recalcQuote()" />
+              <span>Consulting Session</span>
+            </label>
+            <span class="service-price">$85/hr</span>
+          </div>
+          <div class="service-detail" id="svcSessionDetail">
+            <label>Hours</label>
+            <input type="number" id="svcSessionHrs" min="1" value="1" onchange="recalcQuote()" />
+          </div>
+        </div>
+
+        <div class="service-item">
+          <div class="service-row">
+            <label class="checkbox-label">
+              <input type="checkbox" id="svcStarterPkg" onchange="recalcQuote()" />
+              <span>Starter Operations Package</span>
+            </label>
+            <span class="service-price">$500–750</span>
+          </div>
+          <div class="service-detail" id="svcStarterPkgDetail">
+            <label>Amount</label>
+            <select id="svcStarterPkgAmt" onchange="recalcQuote()">
+              <option value="500">$500</option>
+              <option value="625">$625</option>
+              <option value="750">$750</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="service-item">
+          <div class="service-row">
+            <label class="checkbox-label">
+              <input type="checkbox" id="svcFullBuild" onchange="recalcQuote()" />
+              <span>Full System Build</span>
+            </label>
+            <span class="service-price">$1,000–1,500</span>
+          </div>
+          <div class="service-detail" id="svcFullBuildDetail">
+            <label>Amount</label>
+            <select id="svcFullBuildAmt" onchange="recalcQuote()">
+              <option value="1000">$1,000</option>
+              <option value="1250">$1,250</option>
+              <option value="1500">$1,500</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="service-item">
+          <div class="service-row">
+            <label class="checkbox-label">
+              <input type="checkbox" id="svcRetainer" onchange="recalcQuote()" />
+              <span>Monthly Retainer (3hr cap)</span>
+            </label>
+            <span class="service-price">$250/mo</span>
+          </div>
+          <div class="service-detail" id="svcRetainerDetail">
+            <label>Months</label>
+            <input type="number" id="svcRetainerMos" min="1" value="1" onchange="recalcQuote()" />
+          </div>
+        </div>
+
+        <div class="service-item">
+          <div class="service-row">
+            <label class="checkbox-label">
+              <input type="checkbox" id="svcTravel" onchange="recalcQuote()" />
+              <span>Travel (&gt;25 miles)</span>
+            </label>
+            <span class="service-price">$0.67/mi</span>
+          </div>
+          <div class="service-detail" id="svcTravelDetail">
+            <label>Miles (one way)</label>
+            <input type="number" id="svcTravelMiles" min="26" value="30" onchange="recalcQuote()" />
+          </div>
+        </div>
+
+        <div class="quote-summary">
+          <div class="quote-line">
+            <span>Subtotal</span>
+            <span id="quoteSubtotal">$0.00</span>
+          </div>
+          <div class="quote-line accent">
+            <span>Deposit Due (50%)</span>
+            <span id="quoteDeposit">$0.00</span>
+          </div>
+          <div class="quote-line muted">
+            <span>Balance on Delivery</span>
+            <span id="quoteBalance">$0.00</span>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Notes / Scope</label>
+          <textarea id="quoteNotes" rows="2" placeholder="Any custom scope or additional context..."></textarea>
+        </div>
+
+        <div class="form-group">
+          <label>Status</label>
+          <select id="quoteStatus">
+            <option value="draft">Draft</option>
+            <option value="sent">Sent</option>
+            <option value="accepted">Accepted</option>
+            <option value="declined">Declined</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeModal('modal-quote')">Cancel</button>
+        <button class="btn-secondary" onclick="copyQuoteToClipboard()">Copy</button>
+        <button class="btn-primary" onclick="saveQuote()">Save Quote</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Inspection Modal -->
+  <div id="modal-inspection" class="modal">
+    <div class="modal-card modal-tall">
+      <div class="modal-header">
+        <h3>Inspection</h3>
+        <button class="modal-close" onclick="closeModal('modal-inspection')">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="inspectionId" />
+
+        <div class="form-group">
+          <label>Client</label>
+          <select id="inspectionClient">
+            <option value="">Select a client...</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Inspection Type</label>
+          <select id="inspectionType" onchange="switchInspectionTemplate()">
+            <option value="food_truck">Food Truck / Trailer</option>
+            <option value="restaurant">Restaurant / Bar</option>
+            <option value="salon">Salon / Barbershop</option>
+            <option value="digital_media">Digital Media / Content Creator</option>
+            <option value="retail">Retail / E-commerce</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Location / Unit Description</label>
+          <input type="text" id="inspectionUnit" placeholder="e.g. 2019 enclosed trailer, 16ft" />
+        </div>
+
+        <div id="inspectionChecklist">
+          <!-- Dynamically generated -->
+        </div>
+
+        <div class="form-group">
+          <label>Overall Notes / Recommendations</label>
+          <textarea id="inspectionNotes" rows="4" placeholder="Summary of findings, recommendations, anything that needs follow-up..."></textarea>
+        </div>
+
+        <div class="form-group">
+          <label>Overall Rating</label>
+          <select id="inspectionRating">
+            <option value="pass">Pass — Ready to operate</option>
+            <option value="conditional">Conditional — Minor items to address</option>
+            <option value="fail">Fail — Not ready to operate</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeModal('modal-inspection')">Cancel</button>
+        <button class="btn-secondary" onclick="copyInspectionReport()">Copy</button>
+        <button class="btn-accent" onclick="saveAndGeneratePlan()">Save + Plan</button>
+        <button class="btn-primary" onclick="saveInspection()">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
