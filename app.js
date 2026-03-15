@@ -28,6 +28,10 @@ let state = {
 
 const ADMIN_EMAIL = 'chris@easycheesytruck.com';
 
+// Check for invite link param
+const urlParams = new URLSearchParams(window.location.search);
+const INVITE_CLIENT_ID = urlParams.get('invite');
+
 // ===========================
 // AUTH
 // ===========================
@@ -44,6 +48,16 @@ async function checkAuth() {
     return;
   }
   document.getElementById('login-screen').classList.remove('hidden');
+
+  // If invite link, show personalized welcome
+  if (INVITE_CLIENT_ID) {
+    const { data: inviteClient } = await db.from('clients').select('name').eq('id', INVITE_CLIENT_ID).maybeSingle();
+    const welcomeEl = document.getElementById('inviteWelcome');
+    if (inviteClient && welcomeEl) {
+      welcomeEl.textContent = `Welcome, ${inviteClient.name}! Create your account to view your dashboard.`;
+      welcomeEl.style.display = 'block';
+    }
+  }
 }
 
 async function loadOrCreateProfile() {
@@ -62,11 +76,15 @@ async function loadOrCreateProfile() {
   // Check if this is the admin email or first user
   const isAdmin = email === ADMIN_EMAIL;
 
-  // If not admin, try to match email to a client record
+  // If not admin, link to client via invite param or email match
   let linkedClientId = null;
   if (!isAdmin) {
-    const { data: matchingClient } = await db.from('clients').select('id').eq('email', email).single();
-    if (matchingClient) linkedClientId = matchingClient.id;
+    if (INVITE_CLIENT_ID) {
+      linkedClientId = INVITE_CLIENT_ID;
+    } else {
+      const { data: matchingClient } = await db.from('clients').select('id').eq('email', email).maybeSingle();
+      if (matchingClient) linkedClientId = matchingClient.id;
+    }
   }
 
   const newProfile = {
@@ -881,6 +899,14 @@ function viewClient(id) {
     </div>` : ''}
   `;
   openModal('modal-client-view');
+}
+
+function copyInviteLink(clientId) {
+  const base = window.location.origin + window.location.pathname;
+  const link = `${base}?invite=${clientId}`;
+  navigator.clipboard.writeText(link).then(() => toast('Invite link copied!')).catch(() => {
+    prompt('Copy this link:', link);
+  });
 }
 
 function editClientFromView() {
