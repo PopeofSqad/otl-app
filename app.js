@@ -909,6 +909,31 @@ function copyInviteLink(clientId) {
   });
 }
 
+function sendInviteEmail(clientId) {
+  const c = state.clients.find(c => c.id === clientId);
+  if (!c) return;
+  if (!c.email) { toast('No email on file for this client'); return; }
+  const base = window.location.origin + window.location.pathname;
+  const link = `${base}?invite=${clientId}`;
+  const subject = encodeURIComponent('Your On The Line Consulting Dashboard');
+  const body = encodeURIComponent(
+`Hey ${c.name.split(' ')[0]},
+
+Your consulting dashboard is ready. Click the link below to create your account and view your quotes, inspections, and action plans:
+
+${link}
+
+Just sign up with this email and a password — you're all set.
+
+Talk soon,
+Chris Petteys
+On The Line Consulting
+(656) 217-0375`
+  );
+  window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(c.email)}&su=${subject}&body=${body}`, '_blank');
+  toast('Email opened — just hit send!');
+}
+
 function editClientFromView() {
   const c = state.clients.find(c => c.id === state.viewingClientId);
   if (!c) return;

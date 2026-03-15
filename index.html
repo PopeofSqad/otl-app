@@ -280,7 +280,8 @@
       <div class="modal-body" id="viewClientBody"></div>
       <div class="modal-footer" style="flex-wrap:wrap;gap:8px">
         <button class="btn-secondary" onclick="editClientFromView()">Edit</button>
-        <button class="btn-secondary" onclick="copyInviteLink(state.viewingClientId)" title="Copy client login link">📋 Invite Link</button>
+        <button class="btn-secondary" onclick="sendInviteEmail(state.viewingClientId)" title="Email client their login link">✉ Send Invite</button>
+        <button class="btn-secondary" onclick="copyInviteLink(state.viewingClientId)" title="Copy link to clipboard" style="padding:8px 10px">📋</button>
         <button class="btn-primary" onclick="newQuoteForClient()">New Quote</button>
         <button class="btn-accent" onclick="newInspectionForClient()">Inspect</button>
       </div>
