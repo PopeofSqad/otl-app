@@ -38,8 +38,6 @@ async function checkAuth() {
     state.user = session.user;
     await loadOrCreateProfile();
     document.getElementById('login-screen').classList.add('hidden');
-    await migrateLocalStorage();
-    await fixupData();
     await loadFromSupabase();
     applyRoleUI();
     renderAll();
@@ -53,7 +51,7 @@ async function loadOrCreateProfile() {
   const email = state.user.email;
 
   // Try to load existing profile
-  const { data: profile } = await db.from('profiles').select('*').eq('user_id', userId).single();
+  const { data: profile, error: profileErr } = await db.from('profiles').select('*').eq('user_id', userId).maybeSingle();
 
   if (profile) {
     state.profile = { role: profile.role, clientId: profile.client_id, email: profile.email };
@@ -123,8 +121,6 @@ async function handleLogin() {
   state.user = data.user;
   await loadOrCreateProfile();
   document.getElementById('login-screen').classList.add('hidden');
-  await migrateLocalStorage();
-  await fixupData();
   await loadFromSupabase();
   applyRoleUI();
   renderAll();
@@ -161,8 +157,6 @@ async function handleSignup() {
     state.user = data.user;
     await loadOrCreateProfile();
     document.getElementById('login-screen').classList.add('hidden');
-    await migrateLocalStorage();
-    await fixupData();
     await loadFromSupabase();
     applyRoleUI();
     renderAll();
