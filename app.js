@@ -16,7 +16,9 @@ let state = {
   clients: [],
   quotes: [],
   inspections: [],
+  invoices: [],
   activeClientFilter: 'all',
+  activeInvoiceFilter: 'all',
   viewingClientId: null,
   pendingClientForQuote: null,
   pendingClientForInspection: null,
@@ -192,6 +194,8 @@ async function handleLogout() {
   state.clients = [];
   state.quotes = [];
   state.inspections = [];
+  state.invoices = [];
+  state.actionPlans = [];
   document.getElementById('login-screen').classList.remove('hidden');
   toast('Signed out');
 }
@@ -388,11 +392,12 @@ async function migrateLocalStorage() {
 // ===========================
 
 async function loadFromSupabase() {
-  const [clientsRes, quotesRes, inspectionsRes, plansRes] = await Promise.all([
+  const [clientsRes, quotesRes, inspectionsRes, plansRes, invoicesRes] = await Promise.all([
     db.from('clients').select('*').order('created_at', { ascending: false }),
     db.from('quotes').select('*').order('created_at', { ascending: false }),
     db.from('inspections').select('*').order('created_at', { ascending: false }),
     db.from('action_plans').select('*').order('created_at', { ascending: false }),
+    db.from('invoices').select('*').order('created_at', { ascending: false }),
   ]);
 
   // Map DB columns (snake_case) to app state (camelCase)
@@ -420,6 +425,23 @@ async function loadFromSupabase() {
     status: p.status, createdAt: p.created_at, updatedAt: p.updated_at,
   }));
 
+  state.invoices = (invoicesRes.data || []).map(inv => ({
+    id: inv.id, clientId: inv.client_id, quoteId: inv.quote_id,
+    invoiceNumber: inv.invoice_number, amount: parseFloat(inv.amount) || 0,
+    deposit: parseFloat(inv.deposit) || 0, amountPaid: parseFloat(inv.amount_paid) || 0,
+    status: inv.status, issuedDate: inv.issued_date, dueDate: inv.due_date,
+    paidDate: inv.paid_date, notes: inv.notes,
+    createdAt: inv.created_at, updatedAt: inv.updated_at,
+  }));
+
+  // Auto-flag overdue invoices
+  const now = Date.now();
+  state.invoices.forEach(inv => {
+    if (inv.status === 'sent' && inv.dueDate && inv.dueDate < now) {
+      inv.status = 'overdue';
+    }
+  });
+
   // Filter for client users — only show their own data
   if (!isAdmin() && state.profile && state.profile.clientId) {
     const cid = state.profile.clientId;
@@ -427,6 +449,7 @@ async function loadFromSupabase() {
     state.quotes = state.quotes.filter(q => q.clientId === cid);
     state.inspections = state.inspections.filter(i => i.clientId === cid);
     state.actionPlans = state.actionPlans.filter(p => p.clientId === cid);
+    state.invoices = state.invoices.filter(inv => inv.clientId === cid);
   }
 }
 
@@ -455,6 +478,18 @@ async function upsertInspection(inspection) {
     created_at: inspection.createdAt, updated_at: inspection.updatedAt,
   });
   if (error) { console.error('Inspection save error:', error); toast('Save failed — check console'); }
+}
+
+async function upsertInvoice(invoice) {
+  const { error } = await db.from('invoices').upsert({
+    id: invoice.id, client_id: invoice.clientId, quote_id: invoice.quoteId || null,
+    invoice_number: invoice.invoiceNumber, amount: invoice.amount,
+    deposit: invoice.deposit, amount_paid: invoice.amountPaid,
+    status: invoice.status, issued_date: invoice.issuedDate,
+    due_date: invoice.dueDate, paid_date: invoice.paidDate || null,
+    notes: invoice.notes || '', created_at: invoice.createdAt, updated_at: invoice.updatedAt,
+  });
+  if (error) { console.error('Invoice save error:', error); toast('Save failed — check console'); }
 }
 
 // ===========================
@@ -712,6 +747,7 @@ function renderAll() {
   renderQuotes();
   renderInspections();
   renderPlans();
+  renderInvoices();
   populateClientDropdowns();
 }
 
@@ -736,12 +772,37 @@ function renderDashboard() {
   const quotesSent = state.quotes.filter(q => q.status !== 'draft').length;
 
   let totalBilled = 0;
-  state.quotes.filter(q => q.status === 'accepted').forEach(q => { totalBilled += q.total || 0; });
+  state.invoices.forEach(inv => { totalBilled += inv.amount || 0; });
+  // Fallback to accepted quotes if no invoices yet
+  if (totalBilled === 0) {
+    state.quotes.filter(q => q.status === 'accepted').forEach(q => { totalBilled += q.total || 0; });
+  }
+
+  let totalPaid = 0;
+  state.invoices.forEach(inv => { totalPaid += inv.amountPaid || 0; });
+
+  let totalOutstanding = 0;
+  state.invoices.filter(inv => inv.status !== 'paid' && inv.status !== 'draft').forEach(inv => {
+    totalOutstanding += (inv.amount - inv.amountPaid);
+  });
+
+  const overdueCount = state.invoices.filter(inv => inv.status === 'overdue').length;
 
   document.getElementById('statActiveClients').textContent = activeClients;
   document.getElementById('statRetainers').textContent = retainers;
   document.getElementById('statQuotesSent').textContent = quotesSent;
   document.getElementById('statRevenue').textContent = '$' + totalBilled.toLocaleString();
+
+  const paidEl = document.getElementById('statPaid');
+  const outstandingEl = document.getElementById('statOutstanding');
+  if (paidEl) paidEl.textContent = '$' + totalPaid.toLocaleString();
+  if (outstandingEl) outstandingEl.textContent = '$' + totalOutstanding.toLocaleString();
+
+  const overdueEl = document.getElementById('statOverdue');
+  if (overdueEl) {
+    overdueEl.textContent = overdueCount;
+    overdueEl.parentElement.style.display = overdueCount > 0 ? '' : 'none';
+  }
 
   const events = [];
   state.clients.forEach(c => events.push({ type: 'Client', desc: c.name + (c.biz ? ' — ' + c.biz : ''), date: c.createdAt }));
@@ -752,6 +813,11 @@ function renderDashboard() {
   state.inspections.forEach(i => {
     const client = state.clients.find(c => c.id === i.clientId);
     events.push({ type: 'Inspection', desc: (client ? client.name : 'Unknown') + (i.unit ? ' — ' + i.unit : ''), date: i.createdAt });
+  });
+  state.invoices.forEach(inv => {
+    const client = state.clients.find(c => c.id === inv.clientId);
+    const statusLabel = inv.status === 'paid' ? 'PAID' : inv.status === 'overdue' ? 'OVERDUE' : inv.status.toUpperCase();
+    events.push({ type: 'Invoice', desc: `${client ? client.name : 'Unknown'} — ${inv.invoiceNumber} · $${inv.amount.toFixed(0)} · ${statusLabel}`, date: inv.createdAt });
   });
 
   events.sort((a, b) => (b.date || 0) - (a.date || 0));
@@ -987,6 +1053,7 @@ function renderQuotes() {
       accepted: 'status-retainer',
       declined: 'status-completed',
     };
+    const hasInvoice = state.invoices.some(inv => inv.quoteId === q.id);
     return `
       <div class="quote-card" onclick="openEditQuote('${q.id}')">
         <div class="card-top">
@@ -995,6 +1062,7 @@ function renderQuotes() {
         </div>
         <div class="card-meta">
           <span class="status-badge ${statusColors[q.status] || 'status-prospect'}">${q.status}</span>
+          ${hasInvoice ? '<span class="status-badge status-retainer" style="margin-left:4px">invoiced</span>' : ''}
           <span style="margin-left:8px">${formatDate(q.createdAt)}</span>
           ${q.notes ? ` · ${q.notes.slice(0, 40)}...` : ''}
         </div>
@@ -1691,6 +1759,304 @@ async function upsertActionPlan(plan) {
 }
 
 // ===========================
+// INVOICES
+// ===========================
+
+function getNextInvoiceNumber() {
+  const year = new Date().getFullYear();
+  const existing = state.invoices.filter(inv => inv.invoiceNumber.startsWith(`OTL-INV-${year}`));
+  const num = existing.length + 1;
+  return `OTL-INV-${year}-${String(num).padStart(3, '0')}`;
+}
+
+function renderInvoices() {
+  const el = document.getElementById('invoiceList');
+  if (!el) return;
+
+  let filtered = [...state.invoices];
+  if (state.activeInvoiceFilter !== 'all') {
+    filtered = filtered.filter(inv => inv.status === state.activeInvoiceFilter);
+  }
+
+  if (filtered.length === 0) {
+    el.innerHTML = '<div class="empty-state">No invoices yet. Create one from a quote or start fresh.</div>';
+    return;
+  }
+
+  filtered.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+  el.innerHTML = filtered.map(inv => {
+    const client = state.clients.find(c => c.id === inv.clientId);
+    const balance = inv.amount - inv.amountPaid;
+    const statusClass = {
+      draft: 'status-prospect', sent: 'status-active', overdue: 'status-overdue',
+      paid: 'status-retainer', partial: 'status-partial',
+    }[inv.status] || 'status-prospect';
+
+    return `
+      <div class="invoice-card" onclick="openEditInvoice('${inv.id}')">
+        <div class="card-top">
+          <div>
+            <div class="card-client">${client ? client.name : 'Unknown'}</div>
+            <div class="invoice-number">${inv.invoiceNumber}</div>
+          </div>
+          <div style="text-align:right">
+            <div class="card-amount">$${inv.amount.toFixed(2)}</div>
+            <span class="status-badge ${statusClass}">${inv.status}</span>
+          </div>
+        </div>
+        <div class="card-meta">
+          ${inv.issuedDate ? 'Issued ' + formatDate(inv.issuedDate) : 'Draft'}
+          ${inv.dueDate ? ' · Due ' + formatDate(inv.dueDate) : ''}
+          ${balance > 0 && inv.status !== 'draft' ? ` · Balance: $${balance.toFixed(2)}` : ''}
+        </div>
+        ${inv.amountPaid > 0 ? `<div class="invoice-paid-bar"><div class="invoice-paid-fill" style="width:${Math.min((inv.amountPaid / inv.amount) * 100, 100)}%"></div></div>` : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+function setInvoiceFilter(filter, btn) {
+  state.activeInvoiceFilter = filter;
+  document.querySelectorAll('#screen-invoices .filter-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderInvoices();
+}
+
+function openNewInvoice() {
+  document.getElementById('invoiceModalTitle').textContent = 'New Invoice';
+  document.getElementById('invoiceId').value = '';
+  document.getElementById('invoiceNumber').value = getNextInvoiceNumber();
+  document.getElementById('invoiceAmount').value = '';
+  document.getElementById('invoiceDeposit').value = '';
+  document.getElementById('invoiceAmountPaid').value = '0';
+  document.getElementById('invoiceStatus').value = 'draft';
+  document.getElementById('invoiceNotes').value = '';
+  document.getElementById('invoiceQuoteId').value = '';
+
+  const today = new Date().toISOString().split('T')[0];
+  const due = new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0];
+  document.getElementById('invoiceIssuedDate').value = today;
+  document.getElementById('invoiceDueDate').value = due;
+
+  populateClientDropdowns();
+  populateQuoteDropdown('');
+  document.getElementById('btnRecordPayment').style.display = 'none';
+  openModal('modal-invoice');
+}
+
+function openEditInvoice(id) {
+  const inv = state.invoices.find(i => i.id === id);
+  if (!inv) return;
+
+  document.getElementById('invoiceModalTitle').textContent = 'Edit Invoice';
+  document.getElementById('invoiceId').value = inv.id;
+  document.getElementById('invoiceNumber').value = inv.invoiceNumber;
+  document.getElementById('invoiceAmount').value = inv.amount;
+  document.getElementById('invoiceDeposit').value = inv.deposit || '';
+  document.getElementById('invoiceAmountPaid').value = inv.amountPaid;
+  document.getElementById('invoiceStatus').value = inv.status;
+  document.getElementById('invoiceNotes').value = inv.notes || '';
+  document.getElementById('invoiceQuoteId').value = inv.quoteId || '';
+
+  document.getElementById('invoiceIssuedDate').value = inv.issuedDate ? new Date(inv.issuedDate).toISOString().split('T')[0] : '';
+  document.getElementById('invoiceDueDate').value = inv.dueDate ? new Date(inv.dueDate).toISOString().split('T')[0] : '';
+
+  populateClientDropdowns();
+  document.getElementById('invoiceClient').value = inv.clientId || '';
+  populateQuoteDropdown(inv.clientId);
+  document.getElementById('invoiceQuoteId').value = inv.quoteId || '';
+  document.getElementById('btnRecordPayment').style.display = inv.status !== 'paid' ? '' : 'none';
+  openModal('modal-invoice');
+}
+
+function createInvoiceFromQuote(quoteId) {
+  const q = state.quotes.find(q => q.id === quoteId);
+  if (!q) return;
+
+  // Check if invoice already exists for this quote
+  const existing = state.invoices.find(inv => inv.quoteId === quoteId);
+  if (existing) {
+    openEditInvoice(existing.id);
+    return;
+  }
+
+  document.getElementById('invoiceModalTitle').textContent = 'New Invoice';
+  document.getElementById('invoiceId').value = '';
+  document.getElementById('invoiceNumber').value = getNextInvoiceNumber();
+  document.getElementById('invoiceAmount').value = q.total;
+  document.getElementById('invoiceDeposit').value = (q.total * 0.5).toFixed(2);
+  document.getElementById('invoiceAmountPaid').value = '0';
+  document.getElementById('invoiceStatus').value = 'draft';
+  document.getElementById('invoiceNotes').value = q.notes || '';
+  document.getElementById('invoiceQuoteId').value = quoteId;
+
+  const today = new Date().toISOString().split('T')[0];
+  const due = new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0];
+  document.getElementById('invoiceIssuedDate').value = today;
+  document.getElementById('invoiceDueDate').value = due;
+
+  populateClientDropdowns();
+  document.getElementById('invoiceClient').value = q.clientId;
+  populateQuoteDropdown(q.clientId);
+  document.getElementById('invoiceQuoteId').value = quoteId;
+  openModal('modal-invoice');
+}
+
+function populateQuoteDropdown(clientId) {
+  const quotes = clientId ? state.quotes.filter(q => q.clientId === clientId) : state.quotes;
+  const el = document.getElementById('invoiceQuoteId');
+  el.innerHTML = '<option value="">None (standalone invoice)</option>' +
+    quotes.map(q => {
+      const client = state.clients.find(c => c.id === q.clientId);
+      return `<option value="${q.id}">${client ? client.name : 'Unknown'} — $${q.total.toFixed(0)} (${q.status})</option>`;
+    }).join('');
+}
+
+function onInvoiceClientChange() {
+  const clientId = document.getElementById('invoiceClient').value;
+  populateQuoteDropdown(clientId);
+}
+
+function onInvoiceQuoteChange() {
+  const quoteId = document.getElementById('invoiceQuoteId').value;
+  if (!quoteId) return;
+  const q = state.quotes.find(q => q.id === quoteId);
+  if (!q) return;
+  document.getElementById('invoiceAmount').value = q.total;
+  document.getElementById('invoiceDeposit').value = (q.total * 0.5).toFixed(2);
+  document.getElementById('invoiceClient').value = q.clientId;
+}
+
+async function saveInvoice() {
+  const clientId = document.getElementById('invoiceClient').value;
+  if (!clientId) { toast('Select a client'); return; }
+
+  const amount = parseFloat(document.getElementById('invoiceAmount').value) || 0;
+  if (amount <= 0) { toast('Enter an amount'); return; }
+
+  const id = document.getElementById('invoiceId').value || uid();
+  const existing = state.invoices.find(i => i.id === id);
+  const amountPaid = parseFloat(document.getElementById('invoiceAmountPaid').value) || 0;
+
+  let status = document.getElementById('invoiceStatus').value;
+  // Auto-set status based on payment
+  if (amountPaid >= amount && amount > 0) status = 'paid';
+  else if (amountPaid > 0 && amountPaid < amount) status = 'partial';
+
+  const issuedStr = document.getElementById('invoiceIssuedDate').value;
+  const dueStr = document.getElementById('invoiceDueDate').value;
+
+  const invoice = {
+    id,
+    clientId,
+    quoteId: document.getElementById('invoiceQuoteId').value || null,
+    invoiceNumber: document.getElementById('invoiceNumber').value.trim(),
+    amount,
+    deposit: parseFloat(document.getElementById('invoiceDeposit').value) || 0,
+    amountPaid,
+    status,
+    issuedDate: issuedStr ? new Date(issuedStr).getTime() : null,
+    dueDate: dueStr ? new Date(dueStr).getTime() : null,
+    paidDate: status === 'paid' ? Date.now() : null,
+    notes: document.getElementById('invoiceNotes').value.trim(),
+    createdAt: existing ? existing.createdAt : Date.now(),
+    updatedAt: Date.now(),
+  };
+
+  if (existing) {
+    state.invoices = state.invoices.map(i => i.id === id ? invoice : i);
+  } else {
+    state.invoices.push(invoice);
+  }
+
+  renderAll();
+  closeModal('modal-invoice');
+  toast(existing ? 'Invoice updated' : 'Invoice created');
+  await upsertInvoice(invoice);
+}
+
+function recordPayment(invoiceId) {
+  const inv = state.invoices.find(i => i.id === invoiceId);
+  if (!inv) return;
+  const balance = inv.amount - inv.amountPaid;
+  const amount = prompt(`Balance due: $${balance.toFixed(2)}\nEnter payment amount:`);
+  if (!amount) return;
+  const payment = parseFloat(amount);
+  if (isNaN(payment) || payment <= 0) { toast('Invalid amount'); return; }
+
+  inv.amountPaid += payment;
+  inv.updatedAt = Date.now();
+  if (inv.amountPaid >= inv.amount) {
+    inv.status = 'paid';
+    inv.paidDate = Date.now();
+  } else {
+    inv.status = 'partial';
+  }
+
+  renderAll();
+  toast(`Payment of $${payment.toFixed(2)} recorded`);
+  upsertInvoice(inv);
+}
+
+function copyInvoiceToClipboard(invoiceId) {
+  const inv = state.invoices.find(i => i.id === (invoiceId || document.getElementById('invoiceId').value));
+  if (!inv) {
+    // Build from form
+    const clientId = document.getElementById('invoiceClient').value;
+    const client = state.clients.find(c => c.id === clientId);
+    const amount = parseFloat(document.getElementById('invoiceAmount').value) || 0;
+    const deposit = parseFloat(document.getElementById('invoiceDeposit').value) || 0;
+    const notes = document.getElementById('invoiceNotes').value.trim();
+    const invNum = document.getElementById('invoiceNumber').value;
+    const dueStr = document.getElementById('invoiceDueDate').value;
+
+    const lines = [
+      'ON THE LINE CONSULTING',
+      'Chris Petteys | (656) 217-0375',
+      '',
+      `INVOICE: ${invNum}`,
+      `Date: ${new Date().toLocaleDateString()}`,
+      dueStr ? `Due: ${new Date(dueStr).toLocaleDateString()}` : '',
+      '',
+      client ? `Bill To: ${client.name}${client.biz ? ' — ' + client.biz : ''}` : '',
+      '',
+      `Amount Due: $${amount.toFixed(2)}`,
+      deposit > 0 ? `Deposit (50%): $${deposit.toFixed(2)}` : '',
+      '',
+      'Payment: Check, Zelle, Venmo, Cash',
+      'Late payments (15+ days): 5%/month',
+    ];
+    if (notes) { lines.push('', 'Notes: ' + notes); }
+    navigator.clipboard.writeText(lines.filter(l => l !== '').join('\n')).then(() => toast('Invoice copied!'));
+    return;
+  }
+
+  const client = state.clients.find(c => c.id === inv.clientId);
+  const balance = inv.amount - inv.amountPaid;
+  const lines = [
+    'ON THE LINE CONSULTING',
+    'Chris Petteys | (656) 217-0375',
+    '',
+    `INVOICE: ${inv.invoiceNumber}`,
+    `Date: ${inv.issuedDate ? new Date(inv.issuedDate).toLocaleDateString() : new Date().toLocaleDateString()}`,
+    inv.dueDate ? `Due: ${new Date(inv.dueDate).toLocaleDateString()}` : '',
+    '',
+    client ? `Bill To: ${client.name}${client.biz ? ' — ' + client.biz : ''}` : '',
+    '',
+    `Total: $${inv.amount.toFixed(2)}`,
+    inv.deposit > 0 ? `Deposit (50%): $${inv.deposit.toFixed(2)}` : '',
+    inv.amountPaid > 0 ? `Paid: $${inv.amountPaid.toFixed(2)}` : '',
+    balance > 0 ? `Balance Due: $${balance.toFixed(2)}` : 'PAID IN FULL',
+    '',
+    'Payment: Check, Zelle, Venmo, Cash',
+    'Late payments (15+ days): 5%/month',
+  ];
+  if (inv.notes) { lines.push('', 'Notes: ' + inv.notes); }
+  navigator.clipboard.writeText(lines.filter(l => l !== '').join('\n')).then(() => toast('Invoice copied!')).catch(() => toast('Copy failed'));
+}
+
+// ===========================
 // SYNC (manual refresh)
 // ===========================
 
@@ -1712,6 +2078,8 @@ function populateClientDropdowns() {
     state.clients.map(c => `<option value="${c.id}">${c.name}${c.biz ? ' — ' + c.biz : ''}</option>`).join('');
   document.getElementById('quoteClient').innerHTML = options;
   document.getElementById('inspectionClient').innerHTML = options;
+  const invoiceClientEl = document.getElementById('invoiceClient');
+  if (invoiceClientEl) invoiceClientEl.innerHTML = options;
 }
 
 function openModal(id) {

@@ -1130,6 +1130,61 @@ main {
 }
 
 /* ===========================
+   INVOICES
+   =========================== */
+
+.invoice-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.invoice-card:hover { border-color: var(--accent); }
+
+.invoice-number {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: monospace;
+  margin-top: 2px;
+}
+
+.invoice-paid-bar {
+  margin-top: 8px;
+  height: 4px;
+  background: var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.invoice-paid-fill {
+  height: 100%;
+  background: var(--success);
+  border-radius: 4px;
+  transition: width 0.3s;
+}
+
+.status-overdue {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--danger);
+}
+
+.status-partial {
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--warning);
+}
+
+.form-row {
+  display: flex;
+  gap: 12px;
+}
+
+.form-row .form-group { min-width: 0; }
+
+/* ===========================
    SCROLLBAR
    =========================== */
 
