@@ -21,7 +21,7 @@
         <span class="logo-mark" style="font-size:18px;padding:6px 12px">OTL</span>
       </div>
       <h2 style="margin:16px 0 4px;font-size:22px;font-weight:800">On The Line</h2>
-      <p style="color:var(--text-muted);font-size:13px;margin-bottom:24px">Sign in to your dashboard</p>
+      <p style="color:var(--text-muted);font-size:13px;margin-bottom:24px">Sign in to your consulting dashboard</p>
       <div class="form-group">
         <label>Email</label>
         <input type="email" id="loginEmail" placeholder="your@email.com" />
@@ -57,11 +57,11 @@
       <span class="nav-icon">⊞</span>
       <span class="nav-label">Home</span>
     </button>
-    <button class="nav-btn" data-screen="clients" onclick="navigate('clients')">
+    <button class="nav-btn admin-only" data-screen="clients" onclick="navigate('clients')">
       <span class="nav-icon">👤</span>
       <span class="nav-label">Clients</span>
     </button>
-    <button class="nav-btn" data-screen="quotes" onclick="navigate('quotes')">
+    <button class="nav-btn admin-only" data-screen="quotes" onclick="navigate('quotes')">
       <span class="nav-icon">$</span>
       <span class="nav-label">Quotes</span>
     </button>
@@ -107,15 +107,15 @@
       <div class="quick-actions">
         <h3>Quick Actions</h3>
         <div class="action-grid">
-          <button class="action-btn" onclick="navigate('clients'); openAddClient()">
+          <button class="action-btn admin-only" onclick="navigate('clients'); openAddClient()">
             <span class="action-icon">+</span>
             New Client
           </button>
-          <button class="action-btn" onclick="navigate('quotes'); openNewQuote()">
+          <button class="action-btn admin-only" onclick="navigate('quotes'); openNewQuote()">
             <span class="action-icon">$</span>
             New Quote
           </button>
-          <button class="action-btn" onclick="navigate('inspections'); openNewInspection()">
+          <button class="action-btn admin-only" onclick="navigate('inspections'); openNewInspection()">
             <span class="action-icon">✓</span>
             New Inspection
           </button>

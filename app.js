@@ -23,7 +23,10 @@ let state = {
   actionPlans: [],
   viewingPlanId: null,
   user: null,
+  profile: null, // { role: 'admin' | 'client', client_id: null | 'xxx' }
 };
+
+const ADMIN_EMAIL = 'chris@easycheesytruck.com';
 
 // ===========================
 // AUTH
@@ -33,14 +36,69 @@ async function checkAuth() {
   const { data: { session } } = await db.auth.getSession();
   if (session) {
     state.user = session.user;
+    await loadOrCreateProfile();
     document.getElementById('login-screen').classList.add('hidden');
     await migrateLocalStorage();
     await fixupData();
     await loadFromSupabase();
+    applyRoleUI();
     renderAll();
     return;
   }
   document.getElementById('login-screen').classList.remove('hidden');
+}
+
+async function loadOrCreateProfile() {
+  const userId = state.user.id;
+  const email = state.user.email;
+
+  // Try to load existing profile
+  const { data: profile } = await db.from('profiles').select('*').eq('user_id', userId).single();
+
+  if (profile) {
+    state.profile = { role: profile.role, clientId: profile.client_id, email: profile.email };
+    return;
+  }
+
+  // No profile yet — create one
+  // Check if this is the admin email or first user
+  const isAdmin = email === ADMIN_EMAIL;
+
+  // If not admin, try to match email to a client record
+  let linkedClientId = null;
+  if (!isAdmin) {
+    const { data: matchingClient } = await db.from('clients').select('id').eq('email', email).single();
+    if (matchingClient) linkedClientId = matchingClient.id;
+  }
+
+  const newProfile = {
+    user_id: userId,
+    role: isAdmin ? 'admin' : 'client',
+    client_id: linkedClientId,
+    email: email,
+    created_at: Date.now(),
+  };
+
+  await db.from('profiles').insert(newProfile);
+  state.profile = { role: newProfile.role, clientId: linkedClientId, email };
+}
+
+function isAdmin() {
+  return state.profile && state.profile.role === 'admin';
+}
+
+function applyRoleUI() {
+  // Hide admin-only elements for client users
+  const adminEls = document.querySelectorAll('.admin-only');
+  const clientEls = document.querySelectorAll('.client-only');
+
+  if (isAdmin()) {
+    adminEls.forEach(el => el.style.display = '');
+    clientEls.forEach(el => el.style.display = '');
+  } else {
+    adminEls.forEach(el => el.style.display = 'none');
+    clientEls.forEach(el => el.style.display = '');
+  }
 }
 
 async function handleLogin() {
@@ -63,9 +121,12 @@ async function handleLogin() {
   }
 
   state.user = data.user;
+  await loadOrCreateProfile();
   document.getElementById('login-screen').classList.add('hidden');
   await migrateLocalStorage();
+  await fixupData();
   await loadFromSupabase();
+  applyRoleUI();
   renderAll();
   toast('Signed in');
 }
@@ -98,10 +159,12 @@ async function handleSignup() {
   // Auto-confirm is on by default for new Supabase projects
   if (data.session) {
     state.user = data.user;
+    await loadOrCreateProfile();
     document.getElementById('login-screen').classList.add('hidden');
     await migrateLocalStorage();
     await fixupData();
     await loadFromSupabase();
+    applyRoleUI();
     renderAll();
     toast('Account created — welcome!');
   } else {
@@ -344,6 +407,15 @@ async function loadFromSupabase() {
     inspectionType: p.inspection_type || 'food_truck', items: p.items || [],
     status: p.status, createdAt: p.created_at, updatedAt: p.updated_at,
   }));
+
+  // Filter for client users — only show their own data
+  if (!isAdmin() && state.profile && state.profile.clientId) {
+    const cid = state.profile.clientId;
+    state.clients = state.clients.filter(c => c.id === cid);
+    state.quotes = state.quotes.filter(q => q.clientId === cid);
+    state.inspections = state.inspections.filter(i => i.clientId === cid);
+    state.actionPlans = state.actionPlans.filter(p => p.clientId === cid);
+  }
 }
 
 async function upsertClient(client) {
